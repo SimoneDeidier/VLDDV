@@ -155,21 +155,32 @@ def main():
                             lines = plt_file.readlines()[6:]  # Skip header
                             # Only process files with less than 2500 lines
                             if len(lines) < 2500:
-                                # Retrieve the last inserted activity ID
-                                activity_id = db.cursor.lastrowid
-                                # Parse each line to extract trackpoint data
-                                for line in lines:
-                                    lat, lon, _, altitude, date_days, date, time = line.strip().split(',')
-                                    date_time = parse_date(date, time)
-                                    altitude = int(float(altitude))  # Drop the decimal part and save as an integer
-                                    trackpoints.append((activity_id, float(lat), float(lon), altitude, float(date_days), date_time))
+                            # Parse the start and end date-time from the first and last lines
+                                start_date_time = parse_date(*lines[0].strip().split(',')[5:7])
+                                end_date_time = parse_date(*lines[-1].strip().split(',')[5:7])
                                 
-                                # Insert trackpoints in batch
-                                query = """INSERT INTO TrackPoint (activity_id, lat, lon, altitude, date_days, date_time)
-                                           VALUES (%s, %s, %s, %s, %s, %s)"""
-                                db.cursor.executemany(query, trackpoints)
-                                db.db_connection.commit()
-                                trackpoints.clear()  # Clear the list for the next batch
+                                # Retrieve the activity ID for the current user and date range
+                                query = """SELECT id FROM Activity 
+                                    WHERE user_id = %s AND start_date_time = %s AND end_date_time = %s"""
+                                db.cursor.execute(query, (user_id, start_date_time, end_date_time))
+                                activity_id = db.cursor.fetchone()
+                                
+                                if activity_id:
+                                    activity_id = activity_id[0]
+                                    # Parse each line to extract trackpoint data
+                                    for line in lines:
+                                        lat, lon, _, altitude, date_days, date, time = line.strip().split(',')
+                                        date_time = parse_date(date, time)
+                                        altitude = int(float(altitude))  # Drop the decimal part and save as an integer
+                                        trackpoints.append((activity_id, float(lat), float(lon), altitude, float(date_days), date_time))
+                                        
+                                        # Insert all trackpoints for the current file in a single batch
+                                        if trackpoints:
+                                            query = """INSERT INTO TrackPoint (activity_id, lat, lon, altitude, date_days, date_time)
+                                                VALUES (%s, %s, %s, %s, %s, %s)"""
+                                            db.cursor.executemany(query, trackpoints)
+                                            db.db_connection.commit()
+                                            trackpoints.clear()  # Clear the list for the next batch
     
     print("\tTrackPoint data inserted!\nData inserted!")
     
