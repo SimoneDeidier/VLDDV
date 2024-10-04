@@ -3,16 +3,16 @@ from tabulate import tabulate
 import os
 import datetime
 from haversine import haversine
+import time
 
 def main():
-    
     # Task 1.1: connect to the DB
     db = DbConnector()
     
     print("Creating tables...")
     
     # Task 1.2: create tables
-    # Create table for the user
+    start_timing = time.time()
     query = """CREATE TABLE IF NOT EXISTS User (
                 id VARCHAR(256) NOT NULL PRIMARY KEY,
                 has_labels BOOLEAN NOT NULL)
@@ -20,7 +20,6 @@ def main():
     db.cursor.execute(query)
     db.db_connection.commit()
     
-    # create table for the activity
     query = """CREATE TABLE IF NOT EXISTS Activity (
                 id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
                 user_id VARCHAR(256) NOT NULL,
@@ -33,7 +32,6 @@ def main():
     db.cursor.execute(query)
     db.db_connection.commit()
     
-    # create table for the trackpoint
     query = """CREATE TABLE IF NOT EXISTS TrackPoint (
                 id INT NOT NULL PRIMARY KEY AUTO_INCREMENT,
                 activity_id INT NOT NULL,
@@ -47,25 +45,21 @@ def main():
             """
     db.cursor.execute(query)
     db.db_connection.commit()
-    
-    print("Tables created!\nInserting data...\n\tInserting User data...")
+    end_timing = time.time()
+    print(f"Tables created in {end_timing - start_timing:.2f} seconds!\nInserting data...\n\tInserting User data...")
     
     # Task 1.3: insert data
-    # Check if the User table is empty
+    start_timing = time.time()
     db.cursor.execute("SELECT COUNT(*) FROM User")
     user_count = db.cursor.fetchone()[0]
 
     if user_count == 0:
-        # Insert data into the User table
-        # Path to the data folder and labeled_ids.txt
         dataset_folder = 'dataset/Data'
         labeled_ids_file = 'dataset/labeled_ids.txt'
 
-        # Read labeled ids
         with open(labeled_ids_file, 'r') as file:
             labeled_ids = set(file.read().splitlines())
 
-        # Iterate over folders in the dataset folder
         for folder_name in os.listdir(dataset_folder):
             folder_path = os.path.join(dataset_folder, folder_name)
             if os.path.isdir(folder_path):
@@ -74,92 +68,75 @@ def main():
                 db.cursor.execute(query, (folder_name, has_labels))
 
         db.db_connection.commit()
+    end_timing = time.time()
+    print(f"\tUser data inserted in {end_timing - start_timing:.2f} seconds!\n\tInserting Activity data...")
     
-    print("\tUser data inserted!\n\tInserting Activity data...")
-    
-    # Insert data into the Activity table
+    start_timing = time.time()
     def parse_date(date_str, time_str):
         try:
-            # Try parsing the date and time in the format 'YYYY/MM/DD HH:MM:SS'
             return datetime.datetime.strptime(date_str + ' ' + time_str, '%Y/%m/%d %H:%M:%S')
         except ValueError:
-            # If the above format fails, try parsing in the format 'YYYY-MM-DD HH:MM:SS'
             return datetime.datetime.strptime(date_str + ' ' + time_str, '%Y-%m-%d %H:%M:%S')
 
-    # Check if the Activity table is empty
     db.cursor.execute("SELECT COUNT(*) FROM Activity")
     activity_count = db.cursor.fetchone()[0]
 
     if activity_count == 0:
-        # Iterate over each user folder in the dataset folder
         for user_id in os.listdir(dataset_folder):
             user_folder_path = os.path.join(dataset_folder, user_id)
             if os.path.isdir(user_folder_path):
                 labels = {}
-                # If the user has labeled data, read the labels from 'labels.txt'
                 if user_id in labeled_ids:
                     labels_file_path = os.path.join(user_folder_path, 'labels.txt')
                     with open(labels_file_path, 'r') as labels_file:
-                        next(labels_file)  # Skip header
+                        next(labels_file)
                         for line in labels_file:
                             start_time, end_time, mode = line.strip().split('\t')
                             labels[(start_time, end_time)] = mode
 
-                # Iterate over each trajectory file in the 'Trajectory' folder
                 trajectory_folder_path = os.path.join(user_folder_path, 'Trajectory')
                 for plt_file_name in os.listdir(trajectory_folder_path):
                     if plt_file_name.endswith('.plt'):
                         plt_file_path = os.path.join(trajectory_folder_path, plt_file_name)
                         with open(plt_file_path, 'r') as plt_file:
-                            lines = plt_file.readlines()[6:]  # Skip header
-                            # Only process files with less than 2500 lines
+                            lines = plt_file.readlines()[6:]
                             if len(lines) < 2500:
-                                # Parse the start and end date-time from the first and last lines
                                 start_date_time = parse_date(*lines[0].strip().split(',')[5:7])
                                 end_date_time = parse_date(*lines[-1].strip().split(',')[5:7])
                                 transportation_mode = None
-                                # If the user has labeled data, find the corresponding transportation mode
                                 if user_id in labeled_ids:
                                     for (start_time, end_time), mode in labels.items():
                                         if start_date_time == parse_date(*start_time.split()) and end_date_time == parse_date(*end_time.split()):
                                             transportation_mode = mode
                                             break
-                                # Insert the activity data into the Activity table
                                 query = """INSERT INTO Activity (user_id, transportation_mode, start_date_time, end_date_time)
                                            VALUES (%s, %s, %s, %s)"""
                                 db.cursor.execute(query, (user_id, transportation_mode, start_date_time, end_date_time))
         
         db.db_connection.commit()
+    end_timing = time.time()
+    print(f"\tActivity data inserted in {end_timing - start_timing:.2f} seconds!\n\tInserting TrackPoint data...")
     
-    print("\tActivity data inserted!\n\tInserting TrackPoint data...")
-    
-    # Check if the TrackPoint table is empty
+    start_timing = time.time()
     db.cursor.execute("SELECT COUNT(*) FROM TrackPoint")
     trackpoint_count = db.cursor.fetchone()[0]
 
     if trackpoint_count == 0:
-        # Insert data into the TrackPoint table
-        # Prepare a list to hold trackpoint data for batch insertion
         trackpoints = []
 
-        # Iterate over each user folder in the dataset folder
         for user_id in os.listdir(dataset_folder):
             user_folder_path = os.path.join(dataset_folder, user_id)
             if os.path.isdir(user_folder_path):
-                # Iterate over each trajectory file in the 'Trajectory' folder
                 trajectory_folder_path = os.path.join(user_folder_path, 'Trajectory')
                 for plt_file_name in os.listdir(trajectory_folder_path):
                     if plt_file_name.endswith('.plt'):
                         plt_file_path = os.path.join(trajectory_folder_path, plt_file_name)
                         with open(plt_file_path, 'r') as plt_file:
-                            lines = plt_file.readlines()[6:]  # Skip header
-                            # Only process files with less than 2500 lines
+                            lines = plt_file.readlines()[6:]
                             if len(lines) < 2500:
-                            # Parse the start and end date-time from the first and last lines
                                 start_date_time = parse_date(*lines[0].strip().split(',')[5:7])
                                 end_date_time = parse_date(*lines[-1].strip().split(',')[5:7])
                                 
-                                # Retrieve the activity ID for the current user and date range
                                 query = """SELECT id FROM Activity 
                                     WHERE user_id = %s AND start_date_time = %s AND end_date_time = %s"""
                                 db.cursor.execute(query, (user_id, start_date_time, end_date_time))
@@ -167,24 +144,21 @@ def main():
                                 
                                 if activity_id:
                                     activity_id = activity_id[0]
-                                    # Parse each line to extract trackpoint data
                                     for line in lines:
-                                        lat, lon, _, altitude, date_days, date, time = line.strip().split(',')
-                                        date_time = parse_date(date, time)
-                                        altitude = int(float(altitude))  # Drop the decimal part and save as an integer
+                                        lat, lon, _, altitude, date_days, date, time_str = line.strip().split(',')
+                                        date_time = parse_date(date, time_str)
+                                        altitude = int(float(altitude))
                                         trackpoints.append((activity_id, float(lat), float(lon), altitude, float(date_days), date_time))
                                         
-                                        # Insert all trackpoints for the current file in a single batch
                                         if trackpoints:
                                             query = """INSERT INTO TrackPoint (activity_id, lat, lon, altitude, date_days, date_time)
                                                 VALUES (%s, %s, %s, %s, %s, %s)"""
                                             db.cursor.executemany(query, trackpoints)
                                             db.db_connection.commit()
-                                            trackpoints.clear()  # Clear the list for the next batch
+                                            trackpoints.clear()
+    end_timing = time.time()
+    print(f"\tTrackPoint data inserted in {end_timing - start_timing:.2f} seconds!\nData inserted!")
     
-    print("\tTrackPoint data inserted!\nData inserted!")
-    
-    # Function to fetch and display the first ten rows of a table
     def display_table_data(table_name):
         query = f"SELECT * FROM {table_name} LIMIT 10"
         db.cursor.execute(query)
@@ -196,37 +170,36 @@ def main():
         else:
             print(f"\nNo data found in {table_name} table.")
 
-    # Display the first ten rows of each table
     display_table_data('User')
     display_table_data('Activity')
     display_table_data('TrackPoint')
  
     print("\n\n---------QUERIES---------\n\n")
  
-    # Task 2.1: How many users, activities and trackpoints are there in the dataset?
     def count_rows(table_name):
         query = f"SELECT COUNT(*) FROM {table_name}"
         db.cursor.execute(query)
         return db.cursor.fetchone()[0]
 
+    start_timing = time.time()
     user_count = count_rows('User')
     activity_count = count_rows('Activity')
     trackpoint_count = count_rows('TrackPoint')
-
-    print("\nTask 2.1: How many users, activities and trackpoints are there in the dataset?")
+    end_timing = time.time()
+    print(f"\nTask 2.1: How many users, activities and trackpoints are there in the dataset? (Executed in {end_timing - start_timing:.2f} seconds)")
     print(f"Number of users: {user_count}")
     print(f"Number of activities: {activity_count}")
     print(f"Number of trackpoints: {trackpoint_count}")
     
-    # Task 2.2: Find the average number of activities per user.
+    start_timing = time.time()
     query = "SELECT AVG(activity_count) FROM (SELECT COUNT(*) as activity_count FROM Activity GROUP BY user_id) as subquery"
     db.cursor.execute(query)
     average_activities_per_user = db.cursor.fetchone()[0]
-
-    print("\nTask 2.2: Find the average number of activities per user.")
+    end_timing = time.time()
+    print(f"\nTask 2.2: Find the average number of activities per user. (Executed in {end_timing - start_timing:.2f} seconds)")
     print(f"Average number of activities per user: {average_activities_per_user:.2f}")
     
-    # Task 2.3: Find the top 20 users with the highest number of activities.
+    start_timing = time.time()
     query = """SELECT user_id, COUNT(*) as activity_count 
                FROM Activity 
                GROUP BY user_id 
@@ -234,21 +207,21 @@ def main():
                LIMIT 20"""
     db.cursor.execute(query)
     top_users = db.cursor.fetchall()
-
-    print("\nTask 2.3: Find the top 20 users with the highest number of activities.")
+    end_timing = time.time()
+    print(f"\nTask 2.3: Find the top 20 users with the highest number of activities. (Executed in {end_timing - start_timing:.2f} seconds)")
     print(tabulate(top_users, headers=["User ID", "Activity Count"], tablefmt='psql'))
     
-    # Task 2.4: Find all users who have taken a taxi.
+    start_timing = time.time()
     query = """SELECT DISTINCT user_id 
                FROM Activity 
                WHERE transportation_mode = 'taxi'"""
     db.cursor.execute(query)
     taxi_users = db.cursor.fetchall()
-
-    print("\nTask 2.4: Find all users who have taken a taxi.")
+    end_timing = time.time()
+    print(f"\nTask 2.4: Find all users who have taken a taxi. (Executed in {end_timing - start_timing:.2f} seconds)")
     print(tabulate(taxi_users, headers=["User ID"], tablefmt='psql'))
     
-    # Task 2.5: Find all types of transportation modes and count how many activities that are tagged with these transportation mode labels.
+    start_timing = time.time()
     query = """SELECT transportation_mode, COUNT(*) as activity_count 
                FROM Activity 
                WHERE transportation_mode IS NOT NULL 
@@ -256,12 +229,11 @@ def main():
                ORDER BY activity_count DESC"""
     db.cursor.execute(query)
     transportation_modes = db.cursor.fetchall()
-
-    print("\nTask 2.5: Find all types of transportation modes and count how many activities that are tagged with these transportation mode labels.")
+    end_timing = time.time()
+    print(f"\nTask 2.5: Find all types of transportation modes and count how many activities that are tagged with these transportation mode labels. (Executed in {end_timing - start_timing:.2f} seconds)")
     print(tabulate(transportation_modes, headers=["Transportation Mode", "Activity Count"], tablefmt='psql'))
     
-    # Task 2.6: Find the year with the most activities. Is this also the year with most recorded hours?
-    # Find the year with the most activities
+    start_timing = time.time()
     query = """SELECT YEAR(start_date_time) as year, COUNT(*) as activity_count 
                FROM Activity 
                GROUP BY year 
@@ -269,11 +241,11 @@ def main():
                LIMIT 1"""
     db.cursor.execute(query)
     most_activities_year = db.cursor.fetchone()
-
-    print("\nTask 2.6: Find the year with the most activities. Is this also the year with most recorded hours?")
+    end_timing = time.time()
+    print(f"\nTask 2.6: Find the year with the most activities. Is this also the year with most recorded hours? (Executed in {end_timing - start_timing:.2f} seconds)")
     print(f"Year with the most activities: {most_activities_year[0]} with {most_activities_year[1]} activities")
 
-    # Find the year with the most recorded hours
+    start_timing = time.time()
     query = """SELECT YEAR(start_date_time) as year, 
                       SUM(TIMESTAMPDIFF(HOUR, start_date_time, end_date_time)) as total_hours 
                FROM Activity 
@@ -282,14 +254,15 @@ def main():
                LIMIT 1"""
     db.cursor.execute(query)
     most_hours_year = db.cursor.fetchone()
+    end_timing = time.time()
+    print(f"Year with the most recorded hours: {most_hours_year[0]} with {most_hours_year[1]} hours (Executed in {end_timing - start_timing:.2f} seconds)")
 
-    # Check if the year with the most activities is the same as the year with the most recorded hours
     if most_activities_year[0] == most_hours_year[0]:
         print("Yes, the year with the most activities is also the year with the most recorded hours.")
     else:
         print("No, the year with the most activities is not the year with the most recorded hours.")
         
-    # Task 2.7: Find the total distance (in km) walked in 2008, by user with id=112.
+    start_timing = time.time()
     query = """SELECT T1.lat, T1.lon, T2.lat, T2.lon
                FROM TrackPoint T1 JOIN TrackPoint T2
                ON T1.activity_id = T2.activity_id AND T1.id = T2.id - 1
@@ -302,11 +275,70 @@ def main():
     total_distance = 0.0
     for lat1, lon1, lat2, lon2 in trackpoints:
         total_distance += haversine((lat1, lon1), (lat2, lon2))
-
-    print("\nTask 2.7: Find the total distance (in km) walked in 2008, by user with id=112.")
+    end_timing = time.time()
+    print(f"\nTask 2.7: Find the total distance (in km) walked in 2008, by user with id=112. (Executed in {end_timing - start_timing:.2f} seconds)")
     print(f"Total distance walked in 2008 by user 112: {total_distance:.2f} km")
     
-    # close connection with the DB
+    start_timing = time.time()
+    query = """SELECT A.user_id, SUM(T2.altitude - T1.altitude) as total_altitude_gain
+               FROM TrackPoint T1 
+               JOIN TrackPoint T2 ON T1.activity_id = T2.activity_id AND T1.id = T2.id - 1
+               JOIN Activity A ON T1.activity_id = A.id
+               WHERE T2.altitude > T1.altitude AND T1.altitude != -777 AND T2.altitude != -777
+               GROUP BY A.user_id
+               ORDER BY total_altitude_gain DESC
+               LIMIT 20"""
+    db.cursor.execute(query)
+    top_altitude_users = db.cursor.fetchall()
+    end_timing = time.time()
+    top_altitude_users = [(user_id, total_altitude_gain / 1000) for user_id, total_altitude_gain in top_altitude_users]
+    print(f"\nTask 2.8: Find the top 20 users who have gained the most altitude meters. (Executed in {end_timing - start_timing:.2f} seconds)")
+    print(tabulate(top_altitude_users, headers=["User ID", "Total Altitude Gain (kilometers)"], tablefmt='psql'))
+    
+    start_timing = time.time()
+    query = """SELECT A.user_id, COUNT(DISTINCT A.id) as invalid_activity_count
+               FROM TrackPoint T1
+               JOIN TrackPoint T2 ON T1.activity_id = T2.activity_id AND T1.id = T2.id - 1
+               JOIN Activity A ON T1.activity_id = A.id
+               WHERE TIMESTAMPDIFF(MINUTE, T1.date_time, T2.date_time) >= 5
+               GROUP BY A.user_id
+               HAVING invalid_activity_count > 0
+               ORDER BY invalid_activity_count DESC"""
+    db.cursor.execute(query)
+    invalid_activities = db.cursor.fetchall()
+    end_timing = time.time()
+    print(f"\nTask 2.9: Find all users who have invalid activities. (Executed in {end_timing - start_timing:.2f} seconds)")
+    print(tabulate(invalid_activities, headers=["User ID", "Invalid Activity Count"], tablefmt='psql'))
+    
+    start_timing = time.time()
+    query = """SELECT DISTINCT A.user_id
+               FROM TrackPoint T
+               JOIN Activity A ON T.activity_id = A.id
+               WHERE T.lat BETWEEN 39.915 AND 39.917
+               AND T.lon BETWEEN 116.396 AND 116.398"""
+    db.cursor.execute(query)
+    forbidden_city_users = db.cursor.fetchall()
+    end_timing = time.time()
+    print(f"\nTask 2.10: Find the users who have tracked an activity in the Forbidden City of Beijing. (Executed in {end_timing - start_timing:.2f} seconds)")
+    print(tabulate(forbidden_city_users, headers=["User ID"], tablefmt='psql'))
+    
+    start_timing = time.time()
+    query = """SELECT user_id, transportation_mode
+               FROM (
+                   SELECT user_id, transportation_mode, 
+                          ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY COUNT(*) DESC) as rn
+                   FROM Activity
+                   WHERE transportation_mode IS NOT NULL
+                   GROUP BY user_id, transportation_mode
+               ) as subquery
+               WHERE rn = 1
+               ORDER BY user_id"""
+    db.cursor.execute(query)
+    most_used_transportation_modes = db.cursor.fetchall()
+    end_timing = time.time()
+    print(f"\nTask 2.11: Find all users who have registered transportation_mode and their most used transportation_mode. (Executed in {end_timing - start_timing:.2f} seconds)")
+    print(tabulate(most_used_transportation_modes, headers=["User ID", "Most Used Transportation Mode"], tablefmt='psql'))
+    
     db.close_connection()
     print("Connection closed")
     
