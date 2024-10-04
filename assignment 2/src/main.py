@@ -122,6 +122,7 @@ def main():
     trackpoint_count = db.cursor.fetchone()[0]
 
     if trackpoint_count == 0:
+        batch_size = 1000
         trackpoints = []
 
         for user_id in os.listdir(dataset_folder):
@@ -150,12 +151,19 @@ def main():
                                         altitude = int(float(altitude))
                                         trackpoints.append((activity_id, float(lat), float(lon), altitude, float(date_days), date_time))
                                         
-                                        if trackpoints:
+                                        if len(trackpoints) >= batch_size:
                                             query = """INSERT INTO TrackPoint (activity_id, lat, lon, altitude, date_days, date_time)
                                                 VALUES (%s, %s, %s, %s, %s, %s)"""
                                             db.cursor.executemany(query, trackpoints)
                                             db.db_connection.commit()
                                             trackpoints.clear()
+        
+        if trackpoints:
+            query = """INSERT INTO TrackPoint (activity_id, lat, lon, altitude, date_days, date_time)
+                VALUES (%s, %s, %s, %s, %s, %s)"""
+            db.cursor.executemany(query, trackpoints)
+            db.db_connection.commit()
+            trackpoints.clear()
     end_timing = time.time()
     print(f"\tTrackPoint data inserted in {end_timing - start_timing:.2f} seconds!\nData inserted!")
     
