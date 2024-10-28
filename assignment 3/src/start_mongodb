@@ -1,0 +1,5 @@
+#!/bin/bash
+
+sudo brew services start mongodb-community@8.0
+sudo mongod --repair
+sudo mongod --bind_ip_all
