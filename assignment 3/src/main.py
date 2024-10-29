@@ -3,6 +3,7 @@ from DbConnector import DbConnector
 import time
 import os
 import datetime
+import haversine
 
 def parse_date(date_str, time_str):
         try:
@@ -30,7 +31,7 @@ def main():
     if "TrackPoint" not in db.list_collection_names():
         db.create_collection("TrackPoint")
     end_timing = time.time()
-    print(f"Collections created in {end_timing - start_timing:.2f} seconds!\n")
+    print(f"Collections created in {end_timing - start_timing:.2f} seconds!")
     
     # Task 1.3: insert documents
     print("Inserting documents...\n\tInserting User documents...")
@@ -39,6 +40,7 @@ def main():
     dataset_folder = 'dataset/Data'
     labeled_ids = set()
     labeled_ids_file = 'dataset/labeled_ids.txt'
+    plt_to_index = {}
     # Check if the User collection is empty
     if db.User.count_documents({}) == 0:
         # Read labeled_ids from file
@@ -60,6 +62,7 @@ def main():
                         lines = plt_file.readlines()[6:]
                         if len(lines) < 2500:
                             activities.append({"activity_id": activity_index})
+                            plt_to_index[plt_file_name] = activity_index
                             activity_index += 1
                 users.append({"_id": folder_name, "has_labels": has_labels, "activities": activities})
                 activities = []
@@ -116,7 +119,7 @@ def main():
     
     start_timing = time.time()
     # Check if the TrackPoint collection is empty
-    if db.TrackPoints.count_documents({}) == 0:
+    if db.TrackPoint.count_documents({}) == 0:
         index = 0
         track_points = []
         for user_id in sorted(os.listdir(dataset_folder)):
@@ -128,35 +131,125 @@ def main():
                         plt_file_path = os.path.join(trajectory_folder_path, plt_file_name)
                         with open(plt_file_path, 'r') as plt_file:
                             lines = plt_file.readlines()[6:]
-                            if len(lines) < 2500:
-                                start_date_time = parse_date(*lines[0].strip().split(',')[5:7]).isoformat()
-                                end_date_time = parse_date(*lines[-1].strip().split(',')[5:7]).isoformat()
-                                
-                                user_activities = db.User.find_one({"_id": user_id})["activities"]
-                                user_activities_id = [a["activity_id"] for a in user_activities]
-                                activities = db.Activity.find({"start_date_time": start_date_time, "end_date_time": end_date_time})
-                                
-                                activity_id = None
-                                for a in activities:
-                                    if a["_id"] in user_activities_id:
-                                        activity_id = a["_id"]
-                                        break
-                                    
-                                if activity_id is None:
-                                    print(f"[ ERROR ]: Activity not found for user {user_id} with start date time {start_date_time} and end date time {end_date_time}")
-                                    exit(1)
-                                    
+                            if len(lines) < 2500:    
                                 for line in lines:
                                     lat, lon, _, altitude, date_days, date, time_str = line.strip().split(',')
-                                    track_points.append({"_id": index, "lat": float(lat), "lon": float(lon), "altitude": int(float(altitude)), "date_days": float(date_days), "date_time": parse_date(date, time_str).isoformat(), "activity_id": activity_id})
+                                    track_points.append({"_id": index, "lat": float(lat), "lon": float(lon), "altitude": int(float(altitude)), "date_days": float(date_days), "date_time": parse_date(date, time_str).isoformat(), "activity_id": plt_to_index[plt_file_name]})
                                     index += 1
         # Insert track point documents into the TrackPoint collection
         db.TrackPoint.insert_many(track_points)
-        
-    print(f"[ DEBUG ]: Printing the first User, Activity and TrackPoint documents...")
-    pprint(db.User.find_one())
-    pprint(db.Activity.find_one())
-    pprint(db.TrackPoint.find_one())
+    end_timing = time.time()
+    
+    print(f"\tTrackPoint documents inserted in {end_timing - start_timing:.2f} seconds!\nData inserted!")
+
+    print("\n\n---------QUERIES---------\n")
+    
+    # Task 2.1: Count the number of users, activities, and trackpoints in the dataset
+    start_timing = time.time()
+    num_users = db.User.count_documents({})
+    num_activities = db.Activity.count_documents({})
+    num_trackpoints = db.TrackPoint.count_documents({})
+    end_timing = time.time() 
+    print(f"\nTask 2.1: How many users, activities and trackpoints are there in the dataset? (Executed in {end_timing - start_timing:.2f} seconds)")
+    print(f"Number of users: {num_users}")
+    print(f"Number of activities: {num_activities}")
+    print(f"Number of trackpoints: {num_trackpoints}")
+    
+    # Task 2.2: Find the average number of activities per user
+    start_timing = time.time()
+    pipeline = [
+        {"$unwind": "$activities"},
+        {"$group": {"_id": "$_id", "num_activities": {"$sum": 1}}},
+        {"$group": {"_id": None, "avg_activities_per_user": {"$avg": "$num_activities"}}}
+    ]
+    result = list(db.User.aggregate(pipeline))
+    avg_activities_per_user = result[0]['avg_activities_per_user'] if result else 0
+    end_timing = time.time()
+    print(f"\nTask 2.2: Find the average number of activities per user (Executed in {end_timing - start_timing:.2f} seconds)")
+    print(f"Average number of activities per user: {avg_activities_per_user:.2f}")
+    
+    # Task 2.3: Find the top 20 users with the highest number of activities
+    start_timing = time.time()
+    pipeline = [
+        {"$unwind": "$activities"},
+        {"$group": {"_id": "$_id", "num_activities": {"$sum": 1}}},
+        {"$sort": {"num_activities": -1}},
+        {"$limit": 20}
+    ]
+    top_users = list(db.User.aggregate(pipeline))
+    end_timing = time.time()
+    print(f"\nTask 2.3: Find the top 20 users with the highest number of activities (Executed in {end_timing - start_timing:.2f} seconds)")
+    pprint(top_users)
+    
+    # Task 2.4: Find all users who have taken a taxi
+    start_timing = time.time()
+    taxi_users = db.Activity.distinct("user_id", {"transportation_mode": "taxi"})
+    end_timing = time.time()
+    print(f"\nTask 2.4: Find all users who have taken a taxi (Executed in {end_timing - start_timing:.2f} seconds)")
+    pprint(taxi_users)
+    
+    # Task 2.5: Find all types of transportation modes and count how many activities are tagged with these transportation mode labels
+    start_timing = time.time()
+    pipeline = [
+        {"$match": {"transportation_mode": {"$ne": None}}},
+        {"$group": {"_id": "$transportation_mode", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}}
+    ]
+    transportation_modes = list(db.Activity.aggregate(pipeline))
+    end_timing = time.time()
+    print(f"\nTask 2.5: Find all types of transportation modes and count how many activities are tagged with these transportation mode labels (Executed in {end_timing - start_timing:.2f} seconds)")
+    pprint(transportation_modes)
+    
+    # Task 2.6: Find the year with the most activities and check if it is also the year with the most recorded hours
+    start_timing = time.time()
+    pipeline = [
+        {"$group": {"_id": {"$year": {"$dateFromString": {"dateString": "$start_date_time"}}}, "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 1}
+    ]
+    most_activities_year = list(db.Activity.aggregate(pipeline))[0]['_id']
+
+    pipeline = [
+        {"$project": {"year": {"$year": {"$dateFromString": {"dateString": "$start_date_time"}}}, "duration": {"$subtract": [{"$dateFromString": {"dateString": "$end_date_time"}}, {"$dateFromString": {"dateString": "$start_date_time"}}]}}},
+        {"$group": {"_id": "$year", "total_duration": {"$sum": "$duration"}}},
+        {"$sort": {"total_duration": -1}},
+        {"$limit": 1}
+    ]
+    most_recorded_hours_year = list(db.Activity.aggregate(pipeline))[0]['_id']
+    end_timing = time.time()
+
+    print(f"\nTask 2.6: Find the year with the most activities and check if it is also the year with the most recorded hours (Executed in {end_timing - start_timing:.2f} seconds)")
+    print(f"Year with the most activities: {most_activities_year}")
+    print(f"Year with the most recorded hours: {most_recorded_hours_year}")
+    
+    # Task 2.7: Find the total distance walked in 2008 by user with id=112
+    start_timing = time.time()
+    user_id = "112"
+    total_distance = 0.0
+
+    # Find all walking activities for user 112 in 2008
+    walking_activities = db.Activity.find({
+        "user_id": user_id,
+        "transportation_mode": "walk",
+        "start_date_time": {"$gte": "2008-01-01T00:00:00", "$lt": "2009-01-01T00:00:00"}
+    })
+
+    for activity in walking_activities:
+        track_points = db.TrackPoint.find({"activity_id": activity["_id"]}).sort("date_time", 1)
+        prev_point = None
+        for point in track_points:
+            if prev_point is not None:
+                total_distance += haversine.haversine(
+                    (prev_point["lat"], prev_point["lon"]),
+                    (point["lat"], point["lon"])
+                )
+            prev_point = point
+
+    end_timing = time.time()
+    print(f"\nTask 2.7: Find the total distance walked in 2008 by user with id=112 (Executed in {end_timing - start_timing:.2f} seconds)")
+    print(f"Total distance walked in 2008 by user 112: {total_distance:.2f} km")
+    
+    # Task 2.8: Find the top 20 users who have gained the most altitude meters
 
     connection.close_connection()
 
