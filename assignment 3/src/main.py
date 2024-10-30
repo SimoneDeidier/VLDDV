@@ -109,7 +109,7 @@ def main():
                                         if start_date_time == parse_date(*start_time.split()) and end_date_time == parse_date(*end_time.split()):
                                             transportation_mode = mode
                                             break
-                                activities.append({"_id": index, "transportation_mode": transportation_mode, "start_date_time": start_date_time.isoformat(), "end_date_time": end_date_time.isoformat()})
+                                activities.append({"_id": index, "transportation_mode": transportation_mode, "start_date_time": start_date_time.isoformat(), "end_date_time": end_date_time.isoformat(), "user_id": user_id})
                         index += 1
         # Insert activity documents into the Activity collection
         db.Activity.insert_many(activities)
@@ -183,7 +183,19 @@ def main():
     
     # Task 2.4: Find all users who have taken a taxi
     start_timing = time.time()
-    taxi_users = db.Activity.distinct("user_id", {"transportation_mode": "taxi"})
+    pipeline = [
+        {"$lookup": {
+            "from": "Activity",
+            "localField": "_id",
+            "foreignField": "user_id",
+            "as": "activities"
+        }},
+        {"$unwind": "$activities"},
+        {"$match": {"activities.transportation_mode": "taxi"}},
+        {"$group": {"_id": "$_id"}}
+    ]
+    taxi_users = list(db.User.aggregate(pipeline))
+    taxi_users.sort(key=lambda x: x['_id'])
     end_timing = time.time()
     print(f"\nTask 2.4: Find all users who have taken a taxi (Executed in {end_timing - start_timing:.2f} seconds)")
     pprint(taxi_users)
@@ -223,33 +235,83 @@ def main():
     print(f"Year with the most recorded hours: {most_recorded_hours_year}")
     
     # Task 2.7: Find the total distance walked in 2008 by user with id=112
-    start_timing = time.time()
-    user_id = "112"
-    total_distance = 0.0
-
-    # Find all walking activities for user 112 in 2008
-    walking_activities = db.Activity.find({
-        "user_id": user_id,
-        "transportation_mode": "walk",
-        "start_date_time": {"$gte": "2008-01-01T00:00:00", "$lt": "2009-01-01T00:00:00"}
-    })
-
-    for activity in walking_activities:
-        track_points = db.TrackPoint.find({"activity_id": activity["_id"]}).sort("date_time", 1)
-        prev_point = None
-        for point in track_points:
-            if prev_point is not None:
-                total_distance += haversine.haversine(
-                    (prev_point["lat"], prev_point["lon"]),
-                    (point["lat"], point["lon"])
-                )
-            prev_point = point
-
-    end_timing = time.time()
-    print(f"\nTask 2.7: Find the total distance walked in 2008 by user with id=112 (Executed in {end_timing - start_timing:.2f} seconds)")
-    print(f"Total distance walked in 2008 by user 112: {total_distance:.2f} km")
+    # TODO non va mi sa
     
     # Task 2.8: Find the top 20 users who have gained the most altitude meters
+    # TODO
+    start_timing = time.time()
+    # Define the aggregation pipeline
+    pipeline = [
+        # Step 1: Lookup to join TrackPoint collection with Activity
+        {
+            "$lookup": {
+                "from": "TrackPoint",
+                "localField": "id",  # Activity.id
+                "foreignField": "activity_id",  # TrackPoint.activity_id
+                "as": "trackpoints"
+            }
+        },
+        # Step 2: Filter out trackpoints with invalid altitudes (-777)
+        {
+            "$addFields": {
+                "validTrackpoints": {
+                    "$filter": {
+                        "input": "$trackpoints",
+                        "as": "tp",
+                        "cond": { "$ne": ["$$tp.altitude", -777] }
+                    }
+                }
+            }
+        },
+        # Step 3: Sort each activity's trackpoints by id to calculate altitude gains between consecutive points
+        {
+            "$addFields": {
+                "altitudeGain": {
+                    "$reduce": {
+                        "input": { "$slice": ["$validTrackpoints", 1] },  # Skip the first trackpoint to avoid null prevAltitude
+                        "initialValue": { "altitudeSum": 0, "prevAltitude": { "$arrayElemAt": ["$validTrackpoints.altitude", 0] } },
+                        "in": {
+                            "$let": {
+                                "vars": { "currAltitude": "$$this.altitude" },
+                                "in": {
+                                    "altitudeSum": {
+                                        "$add": [
+                                            "$$value.altitudeSum",
+                                            { "$cond": [{ "$gt": ["$$currAltitude", "$$value.prevAltitude"] }, { "$subtract": ["$$currAltitude", "$$value.prevAltitude"] }, 0] }
+                                        ]
+                                    },
+                                    "prevAltitude": "$$currAltitude"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        # Step 4: Group by user_id and calculate total altitude gain for each user
+        {
+            "$group": {
+                "_id": "$user_id",
+                "total_altitude_gain": { "$sum": "$altitudeGain.altitudeSum" }
+            }
+        },
+        # Step 5: Sort by total altitude gain in descending order
+        {
+            "$sort": { "total_altitude_gain": -1 }
+        },
+        # Step 6: Limit the result to the top 20 users
+        {
+            "$limit": 20
+        }
+    ]
+    # Execute the aggregation pipeline
+    top_users_altitude_gain = list(db.Activity.aggregate(pipeline))
+    end_timing = time.time()
+    print(f"\nTask 2.8: Find the top 20 users who have gained the most altitude meters (Executed in {end_timing - start_timing:.2f} seconds)")
+    pprint(top_users_altitude_gain)
+    
+    # Task 2.9: Find all users who have invalid activities
+    
 
     connection.close_connection()
 
