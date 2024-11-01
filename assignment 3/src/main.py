@@ -167,10 +167,11 @@ def main():
     
     # Task 2.2: Find the average number of activities per user
     start_timing = time.time()
+    # Pipeline to calculate the average number of activities per user
     pipeline = [
-        {"$unwind": "$activities"},
-        {"$group": {"_id": "$_id", "num_activities": {"$sum": 1}}},
-        {"$group": {"_id": None, "avg_activities_per_user": {"$avg": "$num_activities"}}}
+        {"$unwind": "$activities"},  # Deconstructs the activities array field from the input documents to output a document for each element
+        {"$group": {"_id": "$_id", "num_activities": {"$sum": 1}}},  # Groups by user ID and counts the number of activities per user
+        {"$group": {"_id": None, "avg_activities_per_user": {"$avg": "$num_activities"}}}  # Calculates the average number of activities per user
     ]
     result = list(db.User.aggregate(pipeline))
     avg_activities_per_user = result[0]['avg_activities_per_user'] if result else 0
@@ -180,11 +181,12 @@ def main():
     
     # Task 2.3: Find the top 20 users with the highest number of activities
     start_timing = time.time()
+    # Pipeline to find the top 20 users with the highest number of activities
     pipeline = [
-        {"$unwind": "$activities"},
-        {"$group": {"_id": "$_id", "num_activities": {"$sum": 1}}},
-        {"$sort": {"num_activities": -1}},
-        {"$limit": 20}
+        {"$unwind": "$activities"},  # Deconstructs the activities array field from the input documents to output a document for each element
+        {"$group": {"_id": "$_id", "num_activities": {"$sum": 1}}},  # Groups by user ID and counts the number of activities per user
+        {"$sort": {"num_activities": -1}},  # Sorts the users by the number of activities in descending order
+        {"$limit": 20}  # Limits the result to the top 20 users
     ]
     top_users = list(db.User.aggregate(pipeline))
     end_timing = time.time()
@@ -193,16 +195,17 @@ def main():
     
     # Task 2.4: Find all users who have taken a taxi
     start_timing = time.time()
+    # Pipeline to find all users who have taken a taxi
     pipeline = [
         {"$lookup": {
             "from": "Activity",
             "localField": "_id",
             "foreignField": "user_id",
             "as": "activities"
-        }},
-        {"$unwind": "$activities"},
-        {"$match": {"activities.transportation_mode": "taxi"}},
-        {"$group": {"_id": "$_id"}}
+        }},  # Join with the Activity collection to get activities for each user
+        {"$unwind": "$activities"},  # Deconstructs the activities array field from the input documents to output a document for each element
+        {"$match": {"activities.transportation_mode": "taxi"}},  # Filter activities to find those with transportation_mode as "taxi"
+        {"$group": {"_id": "$_id"}}  # Group by user ID to get distinct users
     ]
     taxi_users = list(db.User.aggregate(pipeline))
     taxi_users.sort(key=lambda x: x['_id'])
@@ -212,10 +215,11 @@ def main():
     
     # Task 2.5: Find all types of transportation modes and count how many activities are tagged with these transportation mode labels
     start_timing = time.time()
+    # Pipeline to find all types of transportation modes and count how many activities are tagged with these transportation mode labels
     pipeline = [
-        {"$match": {"transportation_mode": {"$ne": None}}},
-        {"$group": {"_id": "$transportation_mode", "count": {"$sum": 1}}},
-        {"$sort": {"count": -1}}
+        {"$match": {"transportation_mode": {"$ne": None}}},  # Filter activities to find those with a non-null transportation_mode
+        {"$group": {"_id": "$transportation_mode", "count": {"$sum": 1}}},  # Group by transportation_mode and count the number of activities for each mode
+        {"$sort": {"count": -1}}  # Sort the results by count in descending order
     ]
     transportation_modes = list(db.Activity.aggregate(pipeline))
     end_timing = time.time()
@@ -224,19 +228,24 @@ def main():
     
     # Task 2.6: Find the year with the most activities and check if it is also the year with the most recorded hours
     start_timing = time.time()
+    
+    # Pipeline to find the year with the most activities
     pipeline = [
-        {"$group": {"_id": {"$year": {"$dateFromString": {"dateString": "$start_date_time"}}}, "count": {"$sum": 1}}},
-        {"$sort": {"count": -1}},
-        {"$limit": 1}
+        {"$group": {"_id": {"$year": {"$dateFromString": {"dateString": "$start_date_time"}}}, "count": {"$sum": 1}}},  # Group by year and count the number of activities per year
+        {"$sort": {"count": -1}},  # Sort the results by count in descending order
+        {"$limit": 1}  # Limit the result to the top year
     ]
     most_activities_year = list(db.Activity.aggregate(pipeline))[0]['_id']
+    
+    # Pipeline to find the year with the most recorded hours
     pipeline = [
-        {"$project": {"year": {"$year": {"$dateFromString": {"dateString": "$start_date_time"}}}, "duration": {"$subtract": [{"$dateFromString": {"dateString": "$end_date_time"}}, {"$dateFromString": {"dateString": "$start_date_time"}}]}}},
-        {"$group": {"_id": "$year", "total_duration": {"$sum": "$duration"}}},
-        {"$sort": {"total_duration": -1}},
-        {"$limit": 1}
+        {"$project": {"year": {"$year": {"$dateFromString": {"dateString": "$start_date_time"}}}, "duration": {"$subtract": [{"$dateFromString": {"dateString": "$end_date_time"}}, {"$dateFromString": {"dateString": "$start_date_time"}}]}}},  # Project the year and duration of each activity
+        {"$group": {"_id": "$year", "total_duration": {"$sum": "$duration"}}},  # Group by year and sum the total duration of activities per year
+        {"$sort": {"total_duration": -1}},  # Sort the results by total duration in descending order
+        {"$limit": 1}  # Limit the result to the top year
     ]
     most_recorded_hours_year = list(db.Activity.aggregate(pipeline))[0]['_id']
+    
     end_timing = time.time()
     print(f"\nTask 2.6: Find the year with the most activities and check if it is also the year with the most recorded hours (Executed in {end_timing - start_timing:.2f} seconds)")
     print(f"Year with the most activities: {most_activities_year}")
@@ -247,25 +256,31 @@ def main():
     user_id = "112"
     year = 2008
     total_distance = 0.0
+
+    # Pipeline to find walking activities for user 112 in 2008
     pipeline = [
-        {"$match": {"user_id": user_id, "transportation_mode": "walk"}},
+        {"$match": {"user_id": user_id, "transportation_mode": "walk"}},  # Match activities with user_id 112 and transportation_mode "walk"
         {"$project": {
             "year": {"$year": {"$dateFromString": {"dateString": "$start_date_time"}}},
             "activity_id": 1
-        }},
-        {"$match": {"year": year}}
+        }},  # Project the year and activity_id
+        {"$match": {"year": year}}  # Match activities in the year 2008
     ]
     activities = list(db.Activity.aggregate(pipeline))
     activity_ids = [activity["_id"] for activity in activities]
+
+    # Pipeline to find track points for the matched activities
     track_points_pipeline = [
-        {"$match": {"activity_id": {"$in": activity_ids}}},
-        {"$sort": {"activity_id": 1, "date_time": 1}},
+        {"$match": {"activity_id": {"$in": activity_ids}}},  # Match track points with the activity_ids
+        {"$sort": {"activity_id": 1, "date_time": 1}},  # Sort track points by activity_id and date_time
         {"$group": {
             "_id": "$activity_id",
             "track_points": {"$push": {"lat": "$lat", "lon": "$lon"}}
-        }}
+        }}  # Group track points by activity_id
     ]
     track_points_groups = list(db.TrackPoint.aggregate(track_points_pipeline))
+
+    # Calculate the total distance walked
     for group in track_points_groups:
         track_points = group["track_points"]
         for i in range(1, len(track_points)):
@@ -279,8 +294,9 @@ def main():
     
     # Task 2.8: Find the top 20 users who have gained the most altitude meters
     start_timing = time.time()
-    max_duration = 10  # Maximum duration in seconds
+    max_duration = 300  # Maximum duration in seconds
     top_altitude_users = None
+
     # Aggregate altitude gain per user
     pipeline = [
         {"$lookup": {
@@ -288,19 +304,19 @@ def main():
             "localField": "_id",
             "foreignField": "user_id",
             "as": "activities"
-        }},
-        {"$unwind": "$activities"},
+        }},  # Join with the Activity collection to get activities for each user
+        {"$unwind": "$activities"},  # Deconstructs the activities array field from the input documents to output a document for each element
         {"$lookup": {
             "from": "TrackPoint",
             "localField": "activities._id",
             "foreignField": "activity_id",
             "as": "track_points"
-        }},
-        {"$unwind": "$track_points"},
+        }},  # Join with the TrackPoint collection to get track points for each activity
+        {"$unwind": "$track_points"},  # Deconstructs the track_points array field from the input documents to output a document for each element
         {"$group": {
             "_id": "$_id",
             "altitudes": {"$push": "$track_points.altitude"}
-        }},
+        }},  # Group track points by user ID and collect altitudes
         {"$project": {
             "total_altitude_gain": {
                 "$sum": {
@@ -317,22 +333,26 @@ def main():
                     }
                 }
             }
-        }},
-        {"$sort": {"total_altitude_gain": -1}},
-        {"$limit": 20}
+        }},  # Calculate the total altitude gain for each user
+        {"$sort": {"total_altitude_gain": -1}},  # Sort users by total altitude gain in descending order
+        {"$limit": 20}  # Limit the result to the top 20 users
     ]
+
     try:
         top_altitude_users = list(db.User.aggregate(pipeline, allowDiskUse=True, maxTimeMS=max_duration * 1000))
     except Exception as e:
-        print(f"Computation stopped due to timeout.")
-    end_timing = time.time()
-    print(f"\nTask 2.8: Find the top 20 users who have gained the most altitude meters (Executed in {end_timing - start_timing:.2f} seconds)")
+        end_timing = time.time()
+        print(f"\nTask 2.8: Find the top 20 users who have gained the most altitude meters - Timed out... (Time elapsed {end_timing - start_timing:.2f} seconds)")
+    
     if top_altitude_users is not None:
+        end_timing = time.time()
+        print(f"\nTask 2.8: Find the top 20 users who have gained the most altitude meters (Executed in {end_timing - start_timing:.2f} seconds)")
         pprint(top_altitude_users)
     
     # Task 2.9: Find all users who have invalid activities
+    # Task 2.9: Find all users who have invalid activities
     start_timing = time.time()
-    max_duration = 10  # Maximum duration in seconds
+    max_duration = 300  # Maximum duration in seconds
 
     # Aggregate invalid activities per user
     pipeline = [
@@ -341,21 +361,21 @@ def main():
             "localField": "_id",
             "foreignField": "user_id",
             "as": "activities"
-        }},
-        {"$unwind": "$activities"},
+        }},  # Join with the Activity collection to get activities for each user
+        {"$unwind": "$activities"},  # Deconstructs the activities array field from the input documents to output a document for each element
         {"$lookup": {
             "from": "TrackPoint",
             "localField": "activities._id",
             "foreignField": "activity_id",
             "as": "track_points"
-        }},
-        {"$unwind": "$track_points"},
-        {"$sort": {"activities._id": 1, "track_points.date_time": 1}},
+        }},  # Join with the TrackPoint collection to get track points for each activity
+        {"$unwind": "$track_points"},  # Deconstructs the track_points array field from the input documents to output a document for each element
+        {"$sort": {"activities._id": 1, "track_points.date_time": 1}},  # Sort track points by activity_id and date_time
         {"$group": {
             "_id": "$activities._id",
             "user_id": {"$first": "$_id"},
             "track_points": {"$push": "$track_points.date_time"}
-        }},
+        }},  # Group track points by activity_id and collect date_times
         {"$project": {
             "user_id": 1,
             "invalid": {
@@ -369,34 +389,36 @@ def main():
                                     {"$arrayElemAt": ["$track_points", "$$idx"]},
                                     {"$arrayElemAt": ["$track_points", {"$subtract": ["$$idx", 1]}]}
                                 ]},
-                                300000
+                                300000  # 5 minutes in milliseconds
                             ]
                         }
                     }
                 }
             }
-        }},
-        {"$match": {"invalid": {"$gt": 0}}},
+        }},  # Calculate the number of invalid track points (time difference >= 5 minutes)
+        {"$match": {"invalid": {"$gt": 0}}},  # Filter activities with invalid track points
         {"$group": {
             "_id": "$user_id",
             "num_invalid_activities": {"$sum": 1}
-        }},
-        {"$sort": {"num_invalid_activities": -1}}
+        }},  # Group by user ID and count the number of invalid activities per user
+        {"$sort": {"num_invalid_activities": -1}}  # Sort users by the number of invalid activities in descending order
     ]
 
     invalid_activities_users = None
     try:
         invalid_activities_users = list(db.User.aggregate(pipeline, allowDiskUse=True, maxTimeMS=max_duration * 1000))
     except Exception as e:
-        print(f"Computation stopped due to timeout!")
+        end_timing = time.time()
+        print(f"\nTask 2.9: Find all users who have invalid activities and the number of invalid activities per user - Timed out... (Time elapsed {end_timing - start_timing:.2f} seconds)")
 
-    end_timing = time.time()
-    print(f"\nTask 2.9: Find all users who have invalid activities and the number of invalid activities per user (Executed in {end_timing - start_timing:.2f} seconds)")
     if invalid_activities_users is not None:
+        end_timing = time.time()
+        print(f"\nTask 2.9: Find all users who have invalid activities and the number of invalid activities per user (Executed in {end_timing - start_timing:.2f} seconds)")
         pprint(invalid_activities_users)
     
     # Task 2.10: Find the users who have tracked an activity in the Forbidden City of Beijing
     start_timing = time.time()
+    
     # Define the coordinates range for the Forbidden City
     lat_min, lat_max = 39.915, 39.917
     lon_min, lon_max = 116.396, 116.398
@@ -413,18 +435,20 @@ def main():
     # Find user IDs associated with these activity IDs
     forbidden_city_users = db.Activity.distinct("user_id", {"_id": {"$in": activity_ids}})
     forbidden_city_users.sort()
+    
     end_timing = time.time()
     print(f"\nTask 2.10: Find the users who have tracked an activity in the Forbidden City of Beijing (Executed in {end_timing - start_timing:.2f} seconds)")
     pprint(forbidden_city_users)
     
     # Task 2.11: Find all users who have registered transportation_mode and their most used transportation_mode
     start_timing = time.time()
+    # Pipeline to find all users who have registered transportation_mode and their most used transportation_mode
     pipeline = [
-        {"$match": {"transportation_mode": {"$ne": None}}},
-        {"$group": {"_id": {"user_id": "$user_id", "transportation_mode": "$transportation_mode"}, "count": {"$sum": 1}}},
-        {"$sort": {"_id.user_id": 1, "count": -1}},
-        {"$group": {"_id": "$_id.user_id", "most_used_transportation_mode": {"$first": "$_id.transportation_mode"}}},
-        {"$sort": {"_id": 1}}
+        {"$match": {"transportation_mode": {"$ne": None}}},  # Filter activities to find those with a non-null transportation_mode
+        {"$group": {"_id": {"user_id": "$user_id", "transportation_mode": "$transportation_mode"}, "count": {"$sum": 1}}},  # Group by user_id and transportation_mode, and count the number of activities for each mode
+        {"$sort": {"_id.user_id": 1, "count": -1}},  # Sort the results by user_id and count in descending order
+        {"$group": {"_id": "$_id.user_id", "most_used_transportation_mode": {"$first": "$_id.transportation_mode"}}},  # Group by user_id and get the most used transportation_mode
+        {"$sort": {"_id": 1}}  # Sort the results by user_id in ascending order
     ]
     most_used_transportation_modes = list(db.Activity.aggregate(pipeline))
     end_timing = time.time()
